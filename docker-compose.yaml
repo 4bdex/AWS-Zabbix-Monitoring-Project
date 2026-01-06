@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres-server:
+    image: postgres:15-alpine
+    container_name: postgres-server
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: zabbix
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: zabbix_pwd
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - zabbix-network
+
+  # Zabbix Server
+  zabbix-server:
+    image: zabbix/zabbix-server-pgsql:alpine-6.4-latest
+    container_name: zabbix-server
+    restart: unless-stopped
+    environment:
+      DB_SERVER_HOST: postgres-server
+      POSTGRES_DB: zabbix
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: zabbix_pwd
+      ZBX_CACHESIZE: 256M
+      ZBX_HISTORYCACHESIZE: 128M
+      ZBX_TRENDCACHESIZE: 64M
+      ZBX_VALUECACHESIZE: 128M
+    ports:
+      - "10051:10051"
+    volumes:
+      - zabbix-server-data:/var/lib/zabbix
+    depends_on:
+      - postgres-server
+    networks:
+      - zabbix-network
+
+  # Zabbix Web Frontend (Nginx)
+  zabbix-web:
+    image: zabbix/zabbix-web-nginx-pgsql:alpine-6.4-latest
+    container_name: zabbix-web
+    restart: unless-stopped
+    environment:
+      ZBX_SERVER_HOST: zabbix-server
+      DB_SERVER_HOST: postgres-server
+      POSTGRES_DB: zabbix
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: zabbix_pwd
+      PHP_TZ: UTC
+    ports:
+      - "80:8080"
+      - "443:8443"
+    depends_on:
+      - postgres-server
+      - zabbix-server
+    networks:
+      - zabbix-network
+
+  # Zabbix Agent
+  zabbix-agent:
+    image: zabbix/zabbix-agent2:alpine-6.4-latest
+    container_name: zabbix-agent
+    restart: unless-stopped
+    environment:
+      ZBX_HOSTNAME: zabbix-agent
+      ZBX_SERVER_HOST: zabbix-server
+      ZBX_SERVER_PORT: 10051
+      ZBX_PASSIVE_ALLOW: "true"
+      ZBX_ACTIVE_ALLOW: "true"
+    ports:
+      - "10050:10050"
+    volumes:
+      - ./conf/zabbix_agentd.conf:/etc/zabbix/zabbix_agentd.conf:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /dev:/host/dev:ro
+    privileged: true
+    depends_on:
+      - zabbix-server
+    networks:
+      - zabbix-network
+
+volumes:
+  postgres-data:
+    driver: local
+  zabbix-server-data:
+    driver: local
+
+networks:
+  zabbix-network:
+    driver: bridge
